@@ -1,10 +1,10 @@
 #pragma once
-#include <cstdlib>
 #define ALLOC_H
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <dlfcn.h>
-
+#include <unistd.h>
 
 typedef struct _alloc_s {
     size_t alloc_size;
@@ -12,62 +12,58 @@ typedef struct _alloc_s {
     struct _alloc_s *next;
 } _alloc_t;
 
-static _alloc_t *root = NULL;
+static _alloc_t *__root = NULL;
 
-static void *(*libc_malloc)(size_t) = NULL;
-static void (*libc_free)(void *) = NULL;
+static size_t __heap_allocated_size = 0;
 
-__attribute__((constructor))
-static void initialize()
+void *__alloc_malloc(size_t size)
 {
-    libc_malloc = (void *(*)(size_t))(dlsym(RTLD_NEXT, "malloc"));
-    libc_free = (void (*)(void *))(dlsym(RTLD_NEXT, "free"));
-
-    if (!libc_malloc || !libc_free) {
-        fprintf(stderr, "Error in obtaining original malloc and free\n");
-        exit(EXIT_FAILURE);
-    }
-}
-
-void *malloc(size_t size)
-{
-    if (!libc_malloc)
-        initialize();
-    _alloc_t *new_root = (_alloc_t *)libc_malloc(sizeof(_alloc_t));
-    if (!new_root)
+    _alloc_t *new_alloc = calloc(1, sizeof(_alloc_t));
+    if (!new_alloc)
     {
-        fprintf(stderr, "ALLOC ERR: failed to malloc size of %zu\n", size);
+        fprintf(stderr, "ALLOC: Failed to alloc %zu!\n", size);
         exit(EXIT_FAILURE);
     }
-    new_root->next = root;
-    root = new_root;
-    void *ptr = libc_malloc(size);
+    new_alloc->next = __root;
+    new_alloc->alloc_size = size;
+    __root = new_alloc;
+    void *ptr = malloc(size);
     if (!ptr)
     {
-        fprintf(stderr, "ALLOC ERR: failed to malloc size of %zu\n", size);
+        fprintf(stderr, "ALLOC: Failed to alloc %zu!\n", size);
         exit(EXIT_FAILURE);
     }
-    new_root->alloc_size = size;
-    new_root->ptr = ptr;
+    __root->ptr = ptr;
+    __heap_allocated_size += size;
     return ptr;
 }
 
-void free(void *ptr)
+void __alloc_free(void *ptr)
 {
     if (!ptr)
         return;
-    if (!libc_free)
-        initialize();
-    _alloc_t *container = root;
-    _alloc_t *container_prec = NULL;
-    for (; container && container->ptr != ptr; container_prec = container, container = container->next);
-    if (!container)
+    _alloc_t *cursor = __root;
+    _alloc_t *old_cursor = NULL;
+    for (; cursor && cursor->ptr != ptr; old_cursor = cursor, cursor = cursor->next);
+    if (!cursor)
         return;
-    libc_free(container->ptr);
-    _alloc_t *container_next = container->next;
-    libc_free(container);
-    if (!container_prec)
-        root = container_next;
+    if (!old_cursor)
+        __root = cursor->next;
     else
-        container_prec->next = container_next;
+        old_cursor->next = cursor->next;
+    free(ptr);
+    __heap_allocated_size -= cursor->alloc_size;
+    free(cursor);
+}
+
+__attribute__((destructor))
+void cleanup(void)
+{
+    for (; __root;) {
+        _alloc_t *next = __root->next;
+        free(__root->ptr);
+        free(__root);
+        __root = next;
+    }
+
 }
