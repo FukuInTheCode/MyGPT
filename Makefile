@@ -4,7 +4,7 @@ CC	   = gcc
 
 WFLAGS = -Wall -Wextra
 
-LIBS = -lm -lc
+LIBS = -lm -lc -lcurl
 
 CFLAGS = -I./include/ $(WFLAGS) $(LIBS)
 
@@ -35,8 +35,8 @@ $(BUILD_CP_DIR)/%.c: src/%.c
 	@echo -e "$(GREEN)Copying $<...$(NC)"
 	@mkdir -p $(dir $@)
 	@cp $< $@
-	@sed -i 's/malloc/__alloc_malloc/g' $@
-	@sed -i 's/free/__alloc_free/g' $@
+	@sed -i 's/ malloc(/ __alloc_malloc(/g' $@
+	@sed -i 's/ free(/ __alloc_free(/g' $@
 
 $(BUILD_OBJ_DIR)/%.o: $(BUILD_CP_DIR)/%.c
 	@echo -e "$(GREEN)Compiling $<...$(NC)"
